@@ -1,0 +1,25 @@
+# Python
+backend/venv/
+backend/__pycache__/
+backend/**/__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+backend/icc_trading.db
+backend/*.db
+
+# Environment files — NEVER commit these
+backend/.env
+frontend/.env.local
+
+# Next.js
+frontend/.next/
+frontend/node_modules/
+frontend/package-lock.json
+
+# Mac
+.DS_Store
+.AppleDouble
+
+# VS Code
+.vscode/
