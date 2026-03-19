@@ -31,7 +31,7 @@ async def get_analytics_summary(
     if symbol:
         query = query.where(Trade.symbol == symbol)
 
-    result = await db.execute(query)
+    result = db.execute(query)
     trades = result.scalars().all()
 
     if not trades:
@@ -80,7 +80,7 @@ async def get_analytics_summary(
 @router.get("/by-symbol")
 async def get_performance_by_symbol(mode: str = "paper", db: AsyncSession = Depends(get_db)):
     """Win rate and expectancy broken down by symbol."""
-    result = await db.execute(
+    result = db.execute(
         select(Trade).where(Trade.mode == mode, Trade.status == "closed")
     )
     trades = result.scalars().all()
@@ -109,7 +109,7 @@ async def get_performance_by_symbol(mode: str = "paper", db: AsyncSession = Depe
 @router.get("/by-setup-score")
 async def get_performance_by_score(mode: str = "paper", db: AsyncSession = Depends(get_db)):
     """Shows whether high-confidence setups actually perform better."""
-    result = await db.execute(
+    result = db.execute(
         select(Trade).where(
             Trade.mode == mode,
             Trade.status == "closed",
@@ -151,7 +151,7 @@ async def get_performance_by_score(mode: str = "paper", db: AsyncSession = Depen
 @router.get("/setup-verdicts")
 async def get_setup_verdict_counts(db: AsyncSession = Depends(get_db)):
     """Count of setups by verdict — how often does each verdict fire?"""
-    result = await db.execute(
+    result = db.execute(
         select(
             SetupEvaluation.verdict,
             func.count(SetupEvaluation.id).label("count")

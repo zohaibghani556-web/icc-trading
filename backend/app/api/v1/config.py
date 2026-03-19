@@ -34,7 +34,7 @@ class ConfigUpdate(BaseModel):
 @router.get("/active")
 async def get_active_config(db: AsyncSession = Depends(get_db)):
     """Get the currently active ICC configuration."""
-    result = await db.execute(
+    result = db.execute(
         select(ICCConfiguration).where(ICCConfiguration.is_active == True).limit(1)
     )
     config = result.scalar_one_or_none()
@@ -43,7 +43,7 @@ async def get_active_config(db: AsyncSession = Depends(get_db)):
         # Create default config if none exists
         config = ICCConfiguration(name="Default")
         db.add(config)
-        await db.flush()
+        db.flush()
 
     return config
 
@@ -51,7 +51,7 @@ async def get_active_config(db: AsyncSession = Depends(get_db)):
 @router.patch("/active")
 async def update_active_config(update: ConfigUpdate, db: AsyncSession = Depends(get_db)):
     """Update the active ICC configuration."""
-    result = await db.execute(
+    result = db.execute(
         select(ICCConfiguration).where(ICCConfiguration.is_active == True).limit(1)
     )
     config = result.scalar_one_or_none()

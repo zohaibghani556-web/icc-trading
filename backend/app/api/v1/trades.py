@@ -56,7 +56,7 @@ async def create_trade(trade_in: TradeCreate, db: AsyncSession = Depends(get_db)
         status="open",
     )
     db.add(trade)
-    await db.flush()
+    db.flush()
 
     return {**trade.__dict__, "has_review": False}
 
@@ -78,12 +78,12 @@ async def list_trades(
         query = query.where(Trade.symbol == symbol)
 
     query = query.limit(limit)
-    result = await db.execute(query)
+    result = db.execute(query)
     trades = result.scalars().all()
 
     # Check which have reviews
     trade_ids = [t.id for t in trades]
-    reviews_result = await db.execute(
+    reviews_result = db.execute(
         select(TradeReview.trade_id).where(TradeReview.trade_id.in_(trade_ids))
     )
     reviewed_ids = {row[0] for row in reviews_result.fetchall()}
@@ -93,12 +93,12 @@ async def list_trades(
 
 @router.get("/{trade_id}", response_model=TradeOut)
 async def get_trade(trade_id: UUID, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Trade).where(Trade.id == trade_id))
+    result = db.execute(select(Trade).where(Trade.id == trade_id))
     trade = result.scalar_one_or_none()
     if not trade:
         raise HTTPException(status_code=404, detail="Trade not found")
 
-    review_result = await db.execute(
+    review_result = db.execute(
         select(TradeReview).where(TradeReview.trade_id == trade_id)
     )
     has_review = review_result.scalar_one_or_none() is not None
@@ -117,7 +117,7 @@ async def close_trade(
     P&L is computed in both dollar terms (if account_risk_dollars is set)
     and in R multiples (1R = amount risked on the trade).
     """
-    result = await db.execute(select(Trade).where(Trade.id == trade_id))
+    result = db.execute(select(Trade).where(Trade.id == trade_id))
     trade = result.scalar_one_or_none()
     if not trade:
         raise HTTPException(status_code=404, detail="Trade not found")
@@ -170,18 +170,18 @@ async def submit_review(
     db: AsyncSession = Depends(get_db),
 ):
     """Submit a post-trade review with labels and notes."""
-    trade_result = await db.execute(select(Trade).where(Trade.id == trade_id))
+    trade_result = db.execute(select(Trade).where(Trade.id == trade_id))
     trade = trade_result.scalar_one_or_none()
     if not trade:
         raise HTTPException(status_code=404, detail="Trade not found")
 
     # Remove existing review if any
-    existing = await db.execute(
+    existing = db.execute(
         select(TradeReview).where(TradeReview.trade_id == trade_id)
     )
     existing_review = existing.scalar_one_or_none()
     if existing_review:
-        await db.delete(existing_review)
+        db.delete(existing_review)
 
     review = TradeReview(
         trade_id=trade_id,
@@ -194,7 +194,7 @@ async def submit_review(
 @router.get("/{trade_id}/review")
 async def get_review(trade_id: UUID, db: AsyncSession = Depends(get_db)):
     """Get the post-trade review for a trade."""
-    result = await db.execute(
+    result = db.execute(
         select(TradeReview).where(TradeReview.trade_id == trade_id)
     )
     review = result.scalar_one_or_none()

@@ -64,7 +64,7 @@ async def receive_webhook(
             processing_error="Invalid JSON payload",
         )
         db.add(raw_alert)
-        await db.flush()
+        db.flush()
         raise HTTPException(status_code=400, detail="Invalid JSON payload")
 
     # ── Store raw alert ───────────────────────────────────────────────────
@@ -79,7 +79,7 @@ async def receive_webhook(
         webhook_token_valid=token_valid,
     )
     db.add(raw_alert)
-    await db.flush()
+    db.flush()
 
     # ── Reject if token invalid (after storing for audit) ─────────────────
     if not token_valid:
@@ -119,10 +119,10 @@ async def receive_webhook(
         signal_timestamp=signal_ts,
     )
     db.add(signal)
-    await db.flush()
+    db.flush()
 
     # ── Load active ICC configuration ─────────────────────────────────────
-    config_result = await db.execute(
+    config_result = db.execute(
         select(ICCConfiguration).where(ICCConfiguration.is_active == True).limit(1)
     )
     icc_config = config_result.scalar_one_or_none()
@@ -230,6 +230,6 @@ async def get_recent_setups(
         query = query.where(SetupEvaluation.verdict == verdict)
 
     query = query.limit(limit)
-    result = await db.execute(query)
+    result = db.execute(query)
     setups = result.scalars().all()
     return setups

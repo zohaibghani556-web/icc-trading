@@ -35,14 +35,14 @@ async def list_setups(
         query = query.where(SetupEvaluation.direction == direction)
 
     query = query.offset(offset).limit(limit)
-    result = await db.execute(query)
+    result = db.execute(query)
     return result.scalars().all()
 
 
 @router.get("/{setup_id}", response_model=SetupEvaluationOut)
 async def get_setup(setup_id: UUID, db: AsyncSession = Depends(get_db)):
     """Get a single setup evaluation by ID."""
-    result = await db.execute(
+    result = db.execute(
         select(SetupEvaluation).where(SetupEvaluation.id == setup_id)
     )
     setup = result.scalar_one_or_none()
@@ -58,7 +58,7 @@ async def update_setup_notes(
     db: AsyncSession = Depends(get_db),
 ):
     """Add or update notes on a setup evaluation."""
-    result = await db.execute(
+    result = db.execute(
         select(SetupEvaluation).where(SetupEvaluation.id == setup_id)
     )
     setup = result.scalar_one_or_none()
