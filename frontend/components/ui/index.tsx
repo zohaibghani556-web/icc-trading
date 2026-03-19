@@ -162,11 +162,14 @@ export function Card({ children, style }: { children: React.ReactNode; style?: R
 
 // ── Page Header ────────────────────────────────────────────────────────────
 
-export function PageHeader({ title, sub }: { title: string; sub?: string }) {
+export function PageHeader({ title, sub, action }: { title: string; sub?: string; action?: React.ReactNode }) {
   return (
-    <div style={{ marginBottom: '24px' }}>
-      <h1 style={{ fontSize: '20px', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>{title}</h1>
-      {sub && <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '4px' }}>{sub}</p>}
+    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '24px' }}>
+      <div>
+        <h1 style={{ fontSize: '20px', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>{title}</h1>
+        {sub && <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '4px' }}>{sub}</p>}
+      </div>
+      {action && <div>{action}</div>}
     </div>
   )
 }
