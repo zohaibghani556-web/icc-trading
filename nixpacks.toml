@@ -1,7 +1,7 @@
 [phases.setup]
 nixPkgs = ["python311"]
 
-[phases.build]
+[phases.install]
 cmds = [
   "python3.11 -m venv /opt/venv",
   "/opt/venv/bin/pip install --upgrade pip",
@@ -9,4 +9,4 @@ cmds = [
 ]
 
 [start]
-cmd = "cd backend && /opt/venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+cmd = "/opt/venv/bin/python -m uvicorn backend.app.main:app --host 0.0.0.0 --port $PORT"
