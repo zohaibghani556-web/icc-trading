@@ -1,3 +1,7 @@
+"""
+config.py — Application configuration
+"""
+
 from pydantic_settings import BaseSettings
 from typing import List
 
@@ -8,8 +12,8 @@ class Settings(BaseSettings):
     JWT_SECRET: str = "change-me-in-.env"
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRE_MINUTES: int = 60 * 24 * 7
-
     ENVIRONMENT: str = "development"
+    ANTHROPIC_API_KEY: str = ""
 
     ALLOWED_ORIGINS: List[str] = ["*"]
 
