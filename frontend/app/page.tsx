@@ -47,7 +47,7 @@ export default function DashboardPage() {
         <StatCard
           label="Win rate"
           value={stats?.win_rate ? `${(stats.win_rate * 100).toFixed(0)}%` : '—'}
-          sub={stats ? `${stats.winners}W / ${stats.losers}L` : undefined}
+          sub={stats && stats.total_trades > 0 ? `${stats.winners}W / ${stats.losers}L` : undefined}
           color={stats && stats.win_rate >= 0.5 ? 'var(--green)' : 'var(--red)'}
         />
       </div>
