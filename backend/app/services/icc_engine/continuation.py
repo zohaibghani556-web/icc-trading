@@ -26,10 +26,11 @@ CONTINUATION_TRIGGER_QUALITY = {
     "vwap_reclaim":              75,
 
     # ── Pine Script names (what actually gets sent) ───────────────────────
-    "macd_cross":        82,   # MACD line crosses signal — strong momentum confirmation
-    "rsi_divergence":    85,   # RSI divergence — classic reversal/continuation signal
-    "hidden_divergence": 80,   # Hidden divergence — trend continuation signal
-    "volume_delta":      78,   # Positive/negative delta confirming direction
+    "macd_cross":           82,   # MACD line crosses signal
+    "rsi_divergence":       85,   # RSI divergence
+    "hidden_divergence":    80,   # Hidden divergence
+    "volume_delta":         78,   # Positive/negative delta
+    "trend_continuation":   60,   # Ongoing trend — lower quality but valid
     # volume_expansion already covered above
     # rejection_candle already covered above
 }

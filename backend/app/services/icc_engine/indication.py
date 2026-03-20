@@ -34,6 +34,13 @@ INDICATION_QUALITY = {
     "or_breakout_bull":  80,   # Opening range breakout bull
     "or_breakout_bear":  80,   # Opening range breakout bear
     # displacement_up / displacement_down already covered above
+    # v2.1 Assessment Engine names
+    "rsi_divergence":    85,   # RSI divergence as indication
+    "choch_reversal":    82,   # CHoCH reversal signal
+    "structure_break":   85,   # Generic structure break
+    "fvg_reaction":      75,   # Reaction from FVG (used as indication in assessment)
+    "liquidity_sweep":   90,   # Liquidity sweep (short name)
+    "trend_continuation":60,   # Ongoing trend signal
 }
 
 DEFAULT_INDICATION_QUALITY = 60
