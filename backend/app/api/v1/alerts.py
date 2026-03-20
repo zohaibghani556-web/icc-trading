@@ -209,7 +209,7 @@ async def receive_webhook(
     try:
         ai_analysis = await _asyncio.wait_for(
             analyze_with_claude(signal_dict, settings.ANTHROPIC_API_KEY),
-            timeout=2.5
+            timeout=1.5
         )
     except Exception:
         ai_analysis = None
