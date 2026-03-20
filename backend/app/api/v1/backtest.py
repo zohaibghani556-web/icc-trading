@@ -69,41 +69,7 @@ async def _run_backtest_task(run_id: str, symbol: str, days: int, config: Dict):
 
         result = await backtester.run(symbol=symbol, days=days, config=config)
 
-        backtest_results[run_id] = {
-            "symbol": result.symbol,
-            "timeframe": result.timeframe,
-            "period": f"{result.start_date} to {result.end_date}",
-            "total_bars": result.total_bars,
-            "total_setups": result.total_setups,
-            "total_trades": result.total_trades,
-            "winners": result.winners,
-            "losers": result.losers,
-            "win_rate": f"{result.win_rate * 100:.1f}%",
-            "avg_winner_r": f"+{result.avg_winner_r}R",
-            "avg_loser_r": f"{result.avg_loser_r}R",
-            "expectancy_r": f"{result.expectancy_r}R per trade",
-            "profit_factor": result.profit_factor,
-            "total_pnl_r": f"{result.total_pnl_r}R",
-            "max_drawdown_r": f"{result.max_drawdown_r}R",
-            "max_consecutive_losses": result.max_consecutive_losses,
-            "avg_mae": result.avg_mae,
-            "avg_mfe": result.avg_mfe,
-            "by_hour": {
-                str(h): {
-                    "trades": v["trades"],
-                    "win_rate": f"{v['win_rate']*100:.1f}%",
-                    "total_r": round(v["total_r"], 2),
-                }
-                for h, v in sorted(result.by_hour.items())
-            },
-            "by_session": result.by_session,
-            "by_indication": result.by_indication,
-            "by_htf_bias": result.by_htf_bias,
-            "best_hours": _get_best_hours(result.by_hour),
-            "worst_hours": _get_worst_hours(result.by_hour),
-            "parameter_set": result.parameter_set,
-            "recommendation": _generate_recommendation(result),
-        }
+        backtest_results[run_id] = result
         backtest_status[run_id] = "complete"
 
     except Exception as e:
