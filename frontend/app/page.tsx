@@ -1,358 +1,494 @@
-/**
- * app/page.tsx — Main Dashboard
- *
- * Live overview of recent setups with plain-English trade instructions.
- */
-
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { api, SetupEvaluation, AnalyticsSummary } from '@/lib/api'
-import {
-  VerdictBadge, DirectionBadge, ConfidenceRing,
-  StatCard, ScoreBar, Card, EmptyState, LoadingSpinner, PageHeader,
-} from '@/components/ui'
 
 export default function DashboardPage() {
-  const [setups, setSetups]   = useState<SetupEvaluation[]>([])
-  const [stats, setStats]     = useState<AnalyticsSummary | null>(null)
+  const [setups, setSetups] = useState<SetupEvaluation[]>([])
+  const [stats, setStats] = useState<AnalyticsSummary | null>(null)
   const [selected, setSelected] = useState<SetupEvaluation | null>(null)
   const [loading, setLoading] = useState(true)
+  const [lastUpdate, setLastUpdate] = useState<Date>(new Date())
 
-  useEffect(() => {
-    Promise.all([api.alerts.recent({}), api.analytics.summary()])
-      .then(([s, a]) => { setSetups(s); setStats(a) })
-      .catch(console.error)
-      .finally(() => setLoading(false))
+  const load = useCallback(async () => {
+    try {
+      const [s, a] = await Promise.all([api.alerts.recent({}), api.analytics.summary()])
+      setSetups(s)
+      setStats(a)
+      setLastUpdate(new Date())
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setLoading(false)
+    }
   }, [])
 
   useEffect(() => {
-    if (!selected && setups.length > 0)
-      setSelected(setups.find(s => s.verdict === 'valid_trade') || setups[0])
+    load()
+    const interval = setInterval(load, 30000)
+    return () => clearInterval(interval)
+  }, [load])
+
+  useEffect(() => {
+    if (!selected && setups.length > 0) {
+      const best = setups.find(s => s.verdict === 'valid_trade') || setups[0]
+      setSelected(best)
+    }
   }, [setups])
 
-  const validCount = setups.filter(s => s.verdict === 'valid_trade').length
-  const watchCount = setups.filter(s => s.verdict === 'watch_only').length
+  const validSetups = setups.filter(s => s.verdict === 'valid_trade')
+  const watchSetups = setups.filter(s => s.verdict === 'watch_only')
+  const latestValid = validSetups[0]
 
   return (
-    <div>
-      <PageHeader title="Dashboard" sub="ICC futures decision-support platform" />
-
-      {/* Stat row */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '12px', marginBottom: '24px' }}>
-        <StatCard label="Valid setups today" value={validCount} color="var(--green)" />
-        <StatCard label="Watch only" value={watchCount} color="var(--amber)" />
-        <StatCard label="Paper trades" value={stats?.total_trades ?? '—'} />
-        <StatCard
-          label="Win rate"
-          value={stats?.win_rate ? `${(stats.win_rate * 100).toFixed(0)}%` : '—'}
-          sub={stats && stats.total_trades > 0 ? `${stats.winners}W / ${stats.losers}L` : undefined}
-          color={stats && stats.win_rate >= 0.5 ? 'var(--green)' : 'var(--red)'}
-        />
-      </div>
-
-      {/* Feed + detail split */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 400px', gap: '16px' }}>
-
-        {/* Feed */}
-        <Card>
-          <div style={{
-            display: 'grid', gridTemplateColumns: '70px 70px 110px 120px 55px 1fr 50px',
-            gap: '12px', padding: '8px 16px', borderBottom: '1px solid var(--border)',
-            fontSize: '10px', color: 'var(--text-muted)', letterSpacing: '0.06em', textTransform: 'uppercase',
-          }}>
-            {['Symbol','Dir','Verdict','Indication','TF','Summary','Time'].map(h => <span key={h}>{h}</span>)}
+    <div style={{ minHeight: '100vh', background: '#080a0f', color: '#e8eaf0', fontFamily: "'IBM Plex Mono', monospace" }}>
+      
+      {/* Top bar */}
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '12px 24px', borderBottom: '1px solid #1a1f2e',
+        background: '#0a0c12',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <div style={{ fontSize: '16px', fontWeight: 700, color: '#fff', letterSpacing: '0.1em' }}>
+            ICC<span style={{ color: '#00ff88' }}>.</span>ELITE
           </div>
-
-          {loading && <LoadingSpinner />}
-          {!loading && setups.length === 0 && (
-            <EmptyState message="No alerts yet" sub="Connect TradingView webhooks to start receiving alerts" />
-          )}
-
-          {setups.slice(0, 30).map(s => (
-            <div key={s.id} onClick={() => setSelected(s)} style={{
-              display: 'grid', gridTemplateColumns: '70px 70px 110px 120px 55px 1fr 50px',
-              alignItems: 'center', gap: '12px', padding: '10px 16px',
-              borderBottom: '1px solid var(--border)', cursor: 'pointer',
-              background: selected?.id === s.id ? 'var(--bg-tertiary)' : 'transparent',
-              borderLeft: selected?.id === s.id ? '2px solid var(--blue)' : '2px solid transparent',
-            }}>
-              <span className="mono" style={{ fontWeight: 600, fontSize: '13px' }}>{s.symbol}</span>
-              <DirectionBadge direction={s.direction} />
-              <VerdictBadge verdict={s.verdict} />
-              <span style={{ fontSize: '11px', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {s.indication_type?.replace(/_/g, ' ') || '—'}
-              </span>
-              <span className="mono" style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{s.timeframe}m</span>
-              <span style={{ fontSize: '11px', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {s.explanation?.summary?.slice(0, 60) || '—'}
-              </span>
-              <span className="mono" style={{ fontSize: '11px', color: 'var(--text-muted)', textAlign: 'right' }}>
-                {new Date(s.evaluated_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-              </span>
-            </div>
-          ))}
-
-          <div style={{ padding: '10px 16px', borderTop: '1px solid var(--border)' }}>
-            <Link href="/alerts" style={{ fontSize: '12px', color: 'var(--blue)', textDecoration: 'none' }}>View all →</Link>
+          <div style={{ fontSize: '11px', color: '#3d4459', letterSpacing: '0.05em' }}>DECISION ENGINE v1.0</div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '20px', fontSize: '11px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#00ff88', animation: 'pulse 2s infinite' }} />
+            <span style={{ color: '#3d4459' }}>LIVE</span>
           </div>
-        </Card>
-
-        {/* Right panel */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          {selected ? (
-            <>
-              {/* If valid trade — show execution instructions first */}
-              {selected.verdict === 'valid_trade' && selected.entry_price ? (
-                <ExecutionPanel setup={selected} />
-              ) : (
-                <SetupDetailPanel setup={selected} />
-              )}
-              {/* For valid trades also show score breakdown below */}
-              {selected.verdict === 'valid_trade' && (
-                <SetupDetailPanel setup={selected} compact />
-              )}
-            </>
-          ) : (
-            <Card style={{ padding: '24px' }}>
-              <EmptyState message="Select a setup" sub="Click any row to see trade instructions" />
-            </Card>
-          )}
+          <span style={{ color: '#3d4459' }}>Updated {lastUpdate.toLocaleTimeString()}</span>
+          <button onClick={load} style={{ background: 'none', border: '1px solid #1a1f2e', color: '#3d4459', padding: '4px 10px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px' }}>
+            ↻ REFRESH
+          </button>
         </div>
       </div>
+
+      {/* Nav */}
+      <div style={{ display: 'flex', gap: '0', borderBottom: '1px solid #1a1f2e', padding: '0 24px', background: '#0a0c12' }}>
+        {[
+          { href: '/', label: 'DASHBOARD' },
+          { href: '/alerts', label: 'SIGNALS' },
+          { href: '/paper-trading', label: 'PAPER TRADE' },
+          { href: '/journal', label: 'JOURNAL' },
+          { href: '/analytics', label: 'ANALYTICS' },
+          { href: '/settings', label: 'SETTINGS' },
+        ].map(item => (
+          <Link key={item.href} href={item.href} style={{
+            padding: '10px 16px', fontSize: '11px', color: '#3d4459',
+            textDecoration: 'none', letterSpacing: '0.08em',
+            borderBottom: item.href === '/' ? '2px solid #00ff88' : '2px solid transparent',
+            color: item.href === '/' ? '#00ff88' : '#3d4459',
+          }}>{item.label}</Link>
+        ))}
+      </div>
+
+      <div style={{ padding: '24px', maxWidth: '1400px', margin: '0 auto' }}>
+        
+        {/* Hero: Latest valid trade */}
+        {latestValid && (
+          <div style={{
+            background: 'linear-gradient(135deg, #0a1a0f 0%, #0a0c12 50%, #0a0f1a 100%)',
+            border: '1px solid #00ff8820',
+            borderRadius: '12px',
+            padding: '28px',
+            marginBottom: '24px',
+            position: 'relative',
+            overflow: 'hidden',
+          }}>
+            <div style={{
+              position: 'absolute', top: 0, right: 0,
+              width: '300px', height: '300px',
+              background: 'radial-gradient(circle, #00ff8808 0%, transparent 70%)',
+              pointerEvents: 'none',
+            }} />
+            
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: '20px' }}>
+              <div>
+                <div style={{ fontSize: '11px', color: '#00ff88', letterSpacing: '0.15em', marginBottom: '8px' }}>
+                  ◆ LATEST VALID TRADE SIGNAL
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '12px' }}>
+                  <span style={{ fontSize: '32px', fontWeight: 700, color: '#fff', letterSpacing: '0.05em' }}>
+                    {latestValid.symbol}
+                  </span>
+                  <span style={{
+                    fontSize: '13px', fontWeight: 600, padding: '4px 12px', borderRadius: '4px',
+                    background: latestValid.direction === 'bullish' ? '#00ff8820' : '#ff003320',
+                    color: latestValid.direction === 'bullish' ? '#00ff88' : '#ff3355',
+                    border: `1px solid ${latestValid.direction === 'bullish' ? '#00ff8840' : '#ff335540'}`,
+                    letterSpacing: '0.08em',
+                  }}>
+                    {latestValid.direction === 'bullish' ? '▲ LONG' : '▼ SHORT'}
+                  </span>
+                  <span style={{ fontSize: '11px', color: '#3d4459' }}>{latestValid.timeframe}M CHART</span>
+                </div>
+                <div style={{ fontSize: '13px', color: '#8892a4', lineHeight: 1.6, maxWidth: '500px' }}>
+                  {latestValid.explanation?.summary || 'Valid ICC setup detected. All criteria met.'}
+                </div>
+              </div>
+
+              {/* Score ring */}
+              <div style={{ textAlign: 'center' }}>
+                <ScoreRing score={latestValid.confidence_score} size={90} />
+                <div style={{ fontSize: '10px', color: '#3d4459', marginTop: '6px', letterSpacing: '0.08em' }}>
+                  {getTier(latestValid.confidence_score)}-TIER
+                </div>
+              </div>
+            </div>
+
+            {/* Trade levels */}
+            {latestValid.entry_price && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1px', background: '#1a1f2e', borderRadius: '8px', overflow: 'hidden', marginTop: '20px' }}>
+                {[
+                  { label: '📍 ENTRY', value: latestValid.entry_price?.toFixed(2), color: '#4d9fff', bg: '#0a1525' },
+                  { label: '🛑 STOP LOSS', value: latestValid.stop_price?.toFixed(2), color: '#ff3355', bg: '#150a0f' },
+                  { label: '🎯 TARGET 1', value: latestValid.target_price?.toFixed(2), color: '#00ff88', bg: '#0a1510' },
+                  { label: '📊 RISK/REWARD', value: latestValid.risk_reward ? `${latestValid.risk_reward}:1` : '—', color: '#f5a623', bg: '#151008' },
+                ].map(item => (
+                  <div key={item.label} style={{ padding: '16px', background: item.bg, textAlign: 'center' }}>
+                    <div style={{ fontSize: '10px', color: '#3d4459', marginBottom: '6px', letterSpacing: '0.08em' }}>{item.label}</div>
+                    <div style={{ fontSize: '22px', fontWeight: 700, color: item.color }}>{item.value || '—'}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Action button */}
+            <div style={{ display: 'flex', gap: '12px', marginTop: '16px' }}>
+              <Link href="/paper-trading" style={{
+                display: 'inline-block', padding: '10px 24px',
+                background: '#00ff88', color: '#000',
+                borderRadius: '6px', textDecoration: 'none',
+                fontSize: '12px', fontWeight: 700, letterSpacing: '0.08em',
+              }}>
+                → LOG PAPER TRADE
+              </Link>
+              <button onClick={() => setSelected(latestValid)} style={{
+                padding: '10px 20px', background: 'none',
+                border: '1px solid #1a1f2e', color: '#8892a4',
+                borderRadius: '6px', cursor: 'pointer',
+                fontSize: '12px', letterSpacing: '0.08em',
+              }}>
+                VIEW FULL ANALYSIS
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Stats row */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '12px', marginBottom: '24px' }}>
+          {[
+            { label: 'VALID SIGNALS TODAY', value: validSetups.length, color: '#00ff88' },
+            { label: 'WATCHING', value: watchSetups.length, color: '#f5a623' },
+            { label: 'PAPER TRADES', value: stats?.total_trades ?? 0, color: '#4d9fff' },
+            { label: 'WIN RATE', value: stats?.total_trades ? `${Math.round(stats.win_rate * 100)}%` : '—', color: stats?.win_rate >= 0.5 ? '#00ff88' : '#ff3355' },
+            { label: 'EXPECTANCY', value: stats?.total_trades ? `${stats.expectancy_r > 0 ? '+' : ''}${stats.expectancy_r}R` : '—', color: stats?.expectancy_r > 0 ? '#00ff88' : '#ff3355' },
+          ].map(item => (
+            <div key={item.label} style={{ background: '#0d1017', border: '1px solid #1a1f2e', borderRadius: '8px', padding: '16px' }}>
+              <div style={{ fontSize: '10px', color: '#3d4459', letterSpacing: '0.1em', marginBottom: '8px' }}>{item.label}</div>
+              <div style={{ fontSize: '24px', fontWeight: 700, color: item.color }}>{item.value}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Signal feed + detail */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 420px', gap: '16px' }}>
+          
+          {/* Signal feed */}
+          <div style={{ background: '#0d1017', border: '1px solid #1a1f2e', borderRadius: '8px', overflow: 'hidden' }}>
+            <div style={{ padding: '14px 20px', borderBottom: '1px solid #1a1f2e', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '11px', letterSpacing: '0.1em', color: '#8892a4' }}>SIGNAL FEED</span>
+              <span style={{ fontSize: '10px', color: '#3d4459' }}>{setups.length} signals</span>
+            </div>
+
+            {/* Table header */}
+            <div style={{
+              display: 'grid', gridTemplateColumns: '80px 70px 100px 80px 80px 1fr',
+              gap: '8px', padding: '8px 20px',
+              fontSize: '10px', color: '#3d4459', letterSpacing: '0.08em',
+              borderBottom: '1px solid #1a1f2e',
+            }}>
+              {['SYMBOL', 'DIR', 'VERDICT', 'SCORE', 'TIER', 'SUMMARY'].map(h => <span key={h}>{h}</span>)}
+            </div>
+
+            {loading && (
+              <div style={{ padding: '40px', textAlign: 'center', color: '#3d4459', fontSize: '12px' }}>
+                LOADING SIGNALS...
+              </div>
+            )}
+
+            {!loading && setups.length === 0 && (
+              <div style={{ padding: '60px', textAlign: 'center' }}>
+                <div style={{ fontSize: '13px', color: '#3d4459', marginBottom: '8px' }}>NO SIGNALS YET</div>
+                <div style={{ fontSize: '11px', color: '#252830' }}>Waiting for TradingView alerts...</div>
+              </div>
+            )}
+
+            {setups.slice(0, 20).map(s => {
+              const score = Math.round(s.confidence_score * 100)
+              const tier = getTier(s.confidence_score)
+              const isSelected = selected?.id === s.id
+              return (
+                <div key={s.id} onClick={() => setSelected(s)} style={{
+                  display: 'grid', gridTemplateColumns: '80px 70px 100px 80px 80px 1fr',
+                  gap: '8px', padding: '12px 20px',
+                  borderBottom: '1px solid #0d1017',
+                  cursor: 'pointer',
+                  background: isSelected ? '#0a1525' : 'transparent',
+                  borderLeft: isSelected ? '2px solid #4d9fff' : '2px solid transparent',
+                  transition: 'background 0.15s',
+                }}>
+                  <span style={{ fontSize: '13px', fontWeight: 600, color: '#fff' }}>{s.symbol}</span>
+                  <span style={{
+                    fontSize: '11px', fontWeight: 600,
+                    color: s.direction === 'bullish' ? '#00ff88' : '#ff3355',
+                  }}>
+                    {s.direction === 'bullish' ? '▲ LONG' : '▼ SHORT'}
+                  </span>
+                  <VerdictBadge verdict={s.verdict} />
+                  <span style={{ fontSize: '12px', color: scoreColor(s.confidence_score) }}>
+                    {score}/100
+                  </span>
+                  <span style={{
+                    fontSize: '11px', fontWeight: 700,
+                    color: tier === 'S' ? '#00ff88' : tier === 'A' ? '#4d9fff' : '#f5a623',
+                  }}>
+                    {tier}-TIER
+                  </span>
+                  <span style={{ fontSize: '11px', color: '#3d4459', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {s.explanation?.summary?.slice(0, 50) || '—'}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Detail panel */}
+          <div>
+            {selected ? <SignalDetail setup={selected} /> : (
+              <div style={{ background: '#0d1017', border: '1px solid #1a1f2e', borderRadius: '8px', padding: '40px', textAlign: 'center' }}>
+                <div style={{ fontSize: '12px', color: '#3d4459' }}>SELECT A SIGNAL TO VIEW DETAILS</div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <style>{`
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+        * { box-sizing: border-box; }
+      `}</style>
     </div>
   )
 }
 
-// ── Plain English Execution Panel ─────────────────────────────────────────
-
-function ExecutionPanel({ setup }: { setup: SetupEvaluation }) {
+function SignalDetail({ setup }: { setup: SetupEvaluation }) {
   const isLong = setup.direction === 'bullish'
-  const action = isLong ? 'BUY' : 'SELL'
-  const dirWord = isLong ? 'LONG' : 'SHORT'
-  const dirColor = isLong ? '#22c55e' : '#ef4444'
-  const entry = setup.entry_price!
-  const stop = setup.stop_price!
+  const dirColor = isLong ? '#00ff88' : '#ff3355'
+  const entry = setup.entry_price
+  const stop = setup.stop_price
   const target = setup.target_price
   const rr = setup.risk_reward
-  const conf = Math.round(setup.confidence_score * 100)
+  const score = Math.round(setup.confidence_score * 100)
+  const tier = getTier(setup.confidence_score)
+  const exp = setup.explanation || {}
 
-  // Estimate MES dollar risk (MES = $5 per point, 0.25 tick)
-  const riskPoints = Math.abs(entry - stop)
-  const mesDollarRisk = Math.round(riskPoints * 5)
-  const mesDollarReward = target ? Math.round(Math.abs(target - entry) * 5) : null
+  const riskPts = entry && stop ? Math.abs(entry - stop) : 0
+  const mnqRisk = Math.round(riskPts * 2)
 
-  const steps = [
-    {
-      num: '1',
-      title: 'Open Tradovate',
-      body: 'Go to app.tradovate.com and make sure you are in Paper Trading mode (blue banner at top).',
-      color: '#3b82f6',
-    },
-    {
-      num: '2',
-      title: `Place a ${dirWord} order on ${setup.symbol}`,
-      body: `Click "${action}" → select "Limit" order → enter price ${entry.toFixed(2)} → 1 contract → submit.`,
-      color: dirColor,
-    },
-    {
-      num: '3',
-      title: 'Set your Stop Loss',
-      body: `Immediately after entry, place a Stop order at ${stop.toFixed(2)}. This is your maximum loss. Do not skip this step.`,
-      color: '#ef4444',
-    },
-    ...(target ? [{
-      num: '4',
-      title: 'Set your Take Profit',
-      body: `Place a Limit ${isLong ? 'Sell' : 'Buy'} order at ${target.toFixed(2)} to lock in your profit automatically.`,
-      color: '#22c55e',
-    }] : []),
-    {
-      num: target ? '5' : '4',
-      title: 'Walk away and let it run',
-      body: `You are risking ~$${mesDollarRisk} to make ~$${mesDollarReward ?? '?'} on 1 MES contract. Do not move your stop. Let price hit your target or stop.`,
-      color: '#f59e0b',
-    },
+  const phases = [
+    { key: 'environment', label: 'ENV' },
+    { key: 'indication', label: 'IND' },
+    { key: 'correction', label: 'COR' },
+    { key: 'continuation', label: 'CON' },
+    { key: 'risk', label: 'RISK' },
   ]
 
   return (
-    <Card style={{ overflow: 'hidden' }}>
-      {/* Header — big and clear */}
+    <div style={{ background: '#0d1017', border: '1px solid #1a1f2e', borderRadius: '8px', overflow: 'hidden' }}>
+      
+      {/* Header */}
       <div style={{
-        padding: '16px 18px',
-        background: isLong ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)',
-        borderBottom: `2px solid ${dirColor}`,
+        padding: '16px 20px',
+        background: isLong ? '#0a1a0f' : '#1a0a0f',
+        borderBottom: `1px solid ${dirColor}30`,
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
-          <div style={{ fontSize: '18px', fontWeight: 700, color: dirColor, fontFamily: 'IBM Plex Mono' }}>
-            {action} {setup.symbol}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <span style={{ fontSize: '18px', fontWeight: 700, color: '#fff' }}>{setup.symbol}</span>
+            <span style={{ fontSize: '12px', color: dirColor, fontWeight: 600 }}>
+              {isLong ? '▲ LONG' : '▼ SHORT'}
+            </span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <ConfidenceRing score={setup.confidence_score} />
+            <ScoreRing score={setup.confidence_score} size={52} />
             <VerdictBadge verdict={setup.verdict} />
           </div>
         </div>
-        <div style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-          {conf}% confidence · {setup.timeframe}m chart · {rr ? `${rr}:1 RR` : ''} 
-          {setup.has_htf_alignment ? ' · HTF aligned ✓' : ''}
-          {setup.is_countertrend ? ' · ⚠ Countertrend' : ''}
+        <div style={{ fontSize: '12px', color: '#8892a4', lineHeight: 1.5 }}>
+          {exp.summary || 'Evaluating setup...'}
         </div>
       </div>
 
-      {/* Trade levels — big numbers */}
-      <div style={{
-        display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)',
-        gap: '1px', background: 'var(--border)',
-        borderBottom: '1px solid var(--border)',
-      }}>
-        {[
-          { label: '📍 Entry', value: entry.toFixed(2), color: 'var(--blue)', bg: 'rgba(59,130,246,0.06)' },
-          { label: '🛑 Stop Loss', value: stop.toFixed(2), color: '#ef4444', bg: 'rgba(239,68,68,0.06)' },
-          { label: '🎯 Take Profit', value: target ? target.toFixed(2) : '—', color: '#22c55e', bg: 'rgba(34,197,94,0.06)' },
-        ].map(item => (
-          <div key={item.label} style={{ padding: '12px 14px', background: item.bg, textAlign: 'center' }}>
-            <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '4px' }}>{item.label}</div>
-            <div style={{ fontFamily: 'IBM Plex Mono', fontSize: '16px', fontWeight: 700, color: item.color }}>
-              {item.value}
+      {/* Levels */}
+      {entry && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1px', background: '#1a1f2e' }}>
+          {[
+            { label: 'ENTRY', value: entry.toFixed(2), color: '#4d9fff' },
+            { label: 'STOP', value: stop?.toFixed(2) || '—', color: '#ff3355' },
+            { label: 'TARGET', value: target?.toFixed(2) || '—', color: '#00ff88' },
+          ].map(item => (
+            <div key={item.label} style={{ padding: '12px', background: '#0d1017', textAlign: 'center' }}>
+              <div style={{ fontSize: '9px', color: '#3d4459', letterSpacing: '0.1em', marginBottom: '4px' }}>{item.label}</div>
+              <div style={{ fontSize: '17px', fontWeight: 700, color: item.color }}>{item.value}</div>
             </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Dollar risk/reward */}
-      <div style={{
-        padding: '10px 18px',
-        background: 'var(--bg-tertiary)',
-        borderBottom: '1px solid var(--border)',
-        display: 'flex', alignItems: 'center', gap: '20px',
-        fontSize: '12px',
-      }}>
-        <span style={{ color: 'var(--text-muted)' }}>1 MES contract:</span>
-        <span>Risk <strong style={{ color: '#ef4444', fontFamily: 'IBM Plex Mono' }}>${mesDollarRisk}</strong></span>
-        {mesDollarReward && (
-          <span>Reward <strong style={{ color: '#22c55e', fontFamily: 'IBM Plex Mono' }}>${mesDollarReward}</strong></span>
-        )}
-        {rr && <span style={{ color: 'var(--text-secondary)' }}>({rr}:1 RR)</span>}
-      </div>
-
-      {/* Step by step instructions */}
-      <div style={{ padding: '14px 18px' }}>
-        <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-          How to execute this trade
-        </div>
-        {steps.map((step, i) => (
-          <div key={i} style={{
-            display: 'flex', gap: '12px', marginBottom: '12px',
-            paddingBottom: '12px',
-            borderBottom: i < steps.length - 1 ? '1px solid var(--border)' : 'none',
-          }}>
-            <div style={{
-              width: '24px', height: '24px', borderRadius: '50%', flexShrink: 0,
-              background: step.color, display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: '11px', fontWeight: 700, color: '#000',
-            }}>
-              {step.num}
-            </div>
-            <div>
-              <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '3px' }}>
-                {step.title}
-              </div>
-              <div style={{ fontSize: '11px', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-                {step.body}
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Exit rules */}
-      <div style={{
-        margin: '0 18px 14px',
-        padding: '12px',
-        background: 'rgba(245,158,11,0.06)',
-        border: '1px solid rgba(245,158,11,0.2)',
-        borderRadius: '6px',
-        fontSize: '11px',
-        color: 'var(--text-secondary)',
-        lineHeight: 1.7,
-      }}>
-        <div style={{ fontWeight: 600, color: '#f59e0b', marginBottom: '4px' }}>⚠ Exit rules</div>
-        <div>• If price hits your <strong style={{ color: '#ef4444' }}>stop at {stop.toFixed(2)}</strong> — you lose ~${mesDollarRisk}. Accept it and move on.</div>
-        {target && <div>• If price hits your <strong style={{ color: '#22c55e' }}>target at {target.toFixed(2)}</strong> — you win ~${mesDollarReward}. Close the trade.</div>}
-        <div>• Never move your stop further away. Never add to a losing trade.</div>
-      </div>
-
-      <div style={{ padding: '0 18px 14px' }}>
-        <Link href={`/paper-trading?setup=${setup.id}`} style={{ textDecoration: 'none' }}>
-          <div style={{
-            background: '#3b82f6', borderRadius: '6px', padding: '10px',
-            textAlign: 'center', fontSize: '13px', fontWeight: 600, color: '#fff', cursor: 'pointer',
-          }}>
-            Log this as a paper trade →
-          </div>
-        </Link>
-      </div>
-    </Card>
-  )
-}
-
-// ── Setup Detail Panel (scores) ────────────────────────────────────────────
-
-function SetupDetailPanel({ setup, compact }: { setup: SetupEvaluation; compact?: boolean }) {
-  const phases = ['environment','indication','correction','continuation','risk']
-  return (
-    <Card style={{ overflow: 'hidden' }}>
-      {!compact && (
-        <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <span className="mono" style={{ fontWeight: 700, fontSize: '15px' }}>{setup.symbol}</span>
-            <DirectionBadge direction={setup.direction} />
-            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{setup.timeframe}m</span>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <ConfidenceRing score={setup.confidence_score} />
-            <VerdictBadge verdict={setup.verdict} />
-          </div>
+          ))}
         </div>
       )}
 
-      <div style={{ padding: '14px 16px' }}>
-        {compact && (
-          <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-            ICC Phase Scores
-          </div>
-        )}
-        {!compact && (
-          <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '14px', lineHeight: 1.6 }}>
-            {setup.explanation?.summary}
-          </p>
-        )}
+      {/* RR + dollar risk */}
+      {entry && (
+        <div style={{ padding: '10px 16px', background: '#0a0c12', display: 'flex', gap: '20px', fontSize: '11px', borderBottom: '1px solid #1a1f2e' }}>
+          <span style={{ color: '#3d4459' }}>RR: <strong style={{ color: '#f5a623' }}>{rr ? `${rr}:1` : '—'}</strong></span>
+          <span style={{ color: '#3d4459' }}>MNQ Risk: <strong style={{ color: '#ff3355' }}>${mnqRisk}</strong></span>
+          <span style={{ color: '#3d4459' }}>Tier: <strong style={{ color: tier === 'S' ? '#00ff88' : tier === 'A' ? '#4d9fff' : '#f5a623' }}>{tier}</strong></span>
+        </div>
+      )}
 
-        {phases.map(key => {
-          const phase = setup.score_breakdown?.[key]
+      {/* Phase scores */}
+      <div style={{ padding: '14px 16px', borderBottom: '1px solid #1a1f2e' }}>
+        <div style={{ fontSize: '10px', color: '#3d4459', letterSpacing: '0.1em', marginBottom: '10px' }}>ICC PHASE SCORES</div>
+        {phases.map(p => {
+          const phase = setup.score_breakdown?.[p.key]
           if (!phase) return null
-          return <ScoreBar key={key} label={key.charAt(0).toUpperCase() + key.slice(1)} score={phase.score} />
+          const s = phase.score
+          return (
+            <div key={p.key} style={{ marginBottom: '7px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
+                <span style={{ fontSize: '11px', color: '#8892a4' }}>{p.label}</span>
+                <span style={{ fontSize: '11px', color: scoreColor(s / 100) }}>{s}</span>
+              </div>
+              <div style={{ height: '3px', background: '#1a1f2e', borderRadius: '2px' }}>
+                <div style={{ height: '100%', width: `${s}%`, background: scoreColor(s / 100), borderRadius: '2px', transition: 'width 0.4s' }} />
+              </div>
+            </div>
+          )
         })}
+      </div>
 
-        {!compact && setup.verdict !== 'valid_trade' && (
-          <div style={{ display: 'flex', gap: '6px', marginTop: '12px', flexWrap: 'wrap' }}>
-            {setup.is_countertrend && (
-              <span style={{ fontSize: '10px', color: 'var(--amber)', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)', padding: '2px 6px', borderRadius: '4px' }}>COUNTERTREND</span>
-            )}
-            {setup.correction_zone_type && (
-              <span style={{ fontSize: '10px', color: 'var(--cyan)', background: 'rgba(6,182,212,0.1)', border: '1px solid rgba(6,182,212,0.3)', padding: '2px 6px', borderRadius: '4px' }}>
-                {setup.correction_zone_type.replace(/_/g,' ').toUpperCase()}
-              </span>
-            )}
+      {/* ICC components */}
+      <div style={{ padding: '14px 16px', borderBottom: '1px solid #1a1f2e' }}>
+        <div style={{ fontSize: '10px', color: '#3d4459', letterSpacing: '0.1em', marginBottom: '10px' }}>DETECTED COMPONENTS</div>
+        {[
+          { label: 'Indication', value: setup.indication_type },
+          { label: 'Correction', value: setup.correction_zone_type },
+          { label: 'Continuation', value: setup.continuation_trigger_type },
+        ].map(item => item.value && (
+          <div key={item.label} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+            <span style={{ fontSize: '11px', color: '#3d4459' }}>{item.label}</span>
+            <span style={{ fontSize: '11px', color: '#8892a4', fontFamily: 'IBM Plex Mono' }}>
+              {item.value.replace(/_/g, ' ')}
+            </span>
           </div>
+        ))}
+        {setup.has_htf_alignment && (
+          <div style={{ fontSize: '10px', color: '#00ff88', marginTop: '6px' }}>✓ HTF ALIGNED</div>
         )}
-
-        {!compact && setup.explanation?.suggested_review_note && (
-          <div style={{ marginTop: '12px', padding: '10px 12px', background: 'var(--bg-secondary)', borderRadius: '6px', fontSize: '11px', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-            💡 {setup.explanation.suggested_review_note}
-          </div>
+        {setup.is_countertrend && (
+          <div style={{ fontSize: '10px', color: '#f5a623', marginTop: '4px' }}>⚠ COUNTERTREND</div>
         )}
       </div>
-    </Card>
+
+      {/* How to execute */}
+      {setup.verdict === 'valid_trade' && entry && (
+        <div style={{ padding: '14px 16px' }}>
+          <div style={{ fontSize: '10px', color: '#3d4459', letterSpacing: '0.1em', marginBottom: '10px' }}>HOW TO EXECUTE</div>
+          {[
+            { n: '1', text: `Open Tradovate → Paper Trading mode`, color: '#4d9fff' },
+            { n: '2', text: `Place ${isLong ? 'BUY' : 'SELL'} Limit at ${entry.toFixed(2)} — 1 contract`, color: dirColor },
+            { n: '3', text: `Set Stop Loss at ${stop?.toFixed(2)} immediately after entry`, color: '#ff3355' },
+            { n: '4', text: `Set Take Profit at ${target?.toFixed(2)} — lock in your gain`, color: '#00ff88' },
+            { n: '5', text: `Walk away. Max loss: $${mnqRisk} on 1 MNQ`, color: '#f5a623' },
+          ].map(step => (
+            <div key={step.n} style={{ display: 'flex', gap: '10px', marginBottom: '10px' }}>
+              <div style={{
+                width: '20px', height: '20px', borderRadius: '50%', flexShrink: 0,
+                background: step.color, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: '10px', fontWeight: 700, color: '#000',
+              }}>{step.n}</div>
+              <div style={{ fontSize: '11px', color: '#8892a4', lineHeight: 1.5 }}>{step.text}</div>
+            </div>
+          ))}
+          <Link href="/paper-trading" style={{
+            display: 'block', textAlign: 'center', padding: '10px',
+            background: '#00ff88', color: '#000', borderRadius: '6px',
+            textDecoration: 'none', fontSize: '12px', fontWeight: 700,
+            letterSpacing: '0.08em', marginTop: '8px',
+          }}>
+            → LOG THIS TRADE
+          </Link>
+        </div>
+      )}
+
+      {setup.verdict !== 'valid_trade' && (
+        <div style={{ padding: '14px 16px' }}>
+          <div style={{ fontSize: '11px', color: '#f5a623', background: '#151008', padding: '12px', borderRadius: '6px', border: '1px solid #f5a62320' }}>
+            {setup.verdict === 'watch_only'
+              ? '👁 WATCH ONLY — Monitor this setup. Wait for continuation confirmation before entering.'
+              : '🚫 INVALID SETUP — Do not trade. Not all ICC criteria are met.'}
+          </div>
+        </div>
+      )}
+    </div>
   )
+}
+
+function ScoreRing({ score, size = 60 }: { score: number; size?: number }) {
+  const pct = Math.round(score <= 1 ? score * 100 : score)
+  const color = pct >= 80 ? '#00ff88' : pct >= 65 ? '#4d9fff' : pct >= 50 ? '#f5a623' : '#ff3355'
+  const r = size / 2 - 4
+  const circ = 2 * Math.PI * r
+  const dash = (Math.min(pct, 100) / 100) * circ
+  return (
+    <div style={{ position: 'relative', width: size, height: size, flexShrink: 0 }}>
+      <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="#1a1f2e" strokeWidth="3" />
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth="3"
+          strokeDasharray={`${dash} ${circ}`} strokeLinecap="round" />
+      </svg>
+      <div style={{
+        position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        fontSize: size > 70 ? '16px' : '11px', fontWeight: 700, color,
+      }}>{pct}</div>
+    </div>
+  )
+}
+
+function VerdictBadge({ verdict }: { verdict: string }) {
+  const map: Record<string, { label: string; color: string; bg: string }> = {
+    valid_trade:   { label: 'VALID',   color: '#00ff88', bg: '#00ff8815' },
+    watch_only:    { label: 'WATCH',   color: '#f5a623', bg: '#f5a62315' },
+    invalid_setup: { label: 'INVALID', color: '#ff3355', bg: '#ff335515' },
+  }
+  const s = map[verdict] || { label: verdict.toUpperCase(), color: '#8892a4', bg: '#1a1f2e' }
+  return (
+    <span style={{
+      fontSize: '10px', fontWeight: 700, padding: '3px 8px', borderRadius: '3px',
+      color: s.color, background: s.bg, letterSpacing: '0.06em',
+    }}>{s.label}</span>
+  )
+}
+
+function getTier(score: number): string {
+  const pct = score <= 1 ? score * 100 : score
+  return pct >= 80 ? 'S' : pct >= 65 ? 'A' : pct >= 50 ? 'B' : 'C'
+}
+
+function scoreColor(score: number): string {
+  const pct = score <= 1 ? score * 100 : score
+  return pct >= 80 ? '#00ff88' : pct >= 65 ? '#4d9fff' : pct >= 50 ? '#f5a623' : '#ff3355'
 }
