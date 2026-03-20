@@ -1,8 +1,7 @@
 """
 services/ai_analysis/claude_evaluator.py
 
-Claude AI reads multi-timeframe indicator data and delivers
-a complete ICC trade evaluation in plain English.
+Claude AI analysis engine — upgraded to handle all ICC Elite Engine v1.0 data.
 """
 
 import httpx
@@ -13,91 +12,81 @@ from typing import Dict, Any, Optional
 CLAUDE_API_URL = "https://api.anthropic.com/v1/messages"
 CLAUDE_MODEL   = "claude-sonnet-4-20250514"
 
-SYSTEM_PROMPT = """You are an expert futures day trader specializing in the ICC (Indication, Correction, Continuation) trading framework. 
-
-You analyze multi-timeframe market data and make precise, objective trade decisions.
+SYSTEM_PROMPT = """You are an elite futures day trader specializing in the ICC framework with Smart Money Concepts.
 
 ICC Framework:
-- INDICATION: Initial directional move — structure break, displacement candle, liquidity sweep
-- CORRECTION: Orderly pullback into a zone — FVG, order block, VWAP, EMA confluence  
-- CONTINUATION: Trigger confirming trend resumption — rejection candle, volume expansion, momentum shift
+- INDICATION: BOS, CHoCH, liquidity sweep, displacement
+- CORRECTION: FVG, Order Block, VWAP, EMA confluence  
+- CONTINUATION: volume delta, RSI divergence, MACD cross
 
-Your job:
-1. Analyze the 4H and 1H trend (HTF bias)
-2. Confirm the 5M/15M entry setup matches the ICC pattern
-3. Validate the indicators support the trade
-4. Give a clear verdict with exact levels
+Signal Tiers:
+- S-Tier (80-100): All aligned. TAKE IT full size.
+- A-Tier (65-79): Most aligned. TAKE IT standard size.
+- B-Tier (50-64): Valid but incomplete. REDUCE size or skip.
+- Below 50: Do not trade.
 
-Always respond with valid JSON only. No markdown, no explanation outside the JSON."""
+Respond with valid JSON only. No markdown."""
 
-def build_analysis_prompt(signal: Dict[str, Any]) -> str:
-    return f"""Analyze this real-time market data and evaluate the ICC trade setup.
 
-MARKET DATA:
-Symbol: {signal.get('symbol')} | Timeframe: {signal.get('timeframe')}min | Direction: {signal.get('direction')}
-Current Price: {signal.get('price')} | High: {signal.get('high')} | Low: {signal.get('low')}
+def build_prompt(signal: Dict[str, Any]) -> str:
+    score = signal.get('composite_score', signal.get('confidence_score', 0))
+    if isinstance(score, float) and score <= 1:
+        score = int(score * 100)
 
-MULTI-TIMEFRAME BIAS:
-4H Bias: {signal.get('htf_bias')} (EMA21: {signal.get('ema21_4h')}, EMA50: {signal.get('ema50_4h')})
-1H Bias: {signal.get('htf_bias_1h')} (EMA21: {signal.get('ema21_1h')}, EMA50: {signal.get('ema50_1h')})
-4H RSI: {signal.get('rsi_4h')} | 1H RSI: {signal.get('rsi_1h')}
+    return f"""Analyze this ICC Elite Engine signal.
 
-ENTRY TIMEFRAME INDICATORS:
-EMA8: {signal.get('ema8')} | EMA21: {signal.get('ema21')} | EMA50: {signal.get('ema50')}
-RSI(14): {signal.get('rsi')} | VWAP: {signal.get('vwap')}
-ATR(14): {signal.get('atr')} | Volume Expanding: {signal.get('vol_expanding')}
-Session: {signal.get('session')}
+SIGNAL: {signal.get('symbol')} {signal.get('direction')} {signal.get('timeframe')}min | Score: {score}/100 | Tier: {signal.get('signal_tier','?')} | Session: {signal.get('session')}
 
-ICC PATTERN DETECTED:
-Signal Type: {signal.get('signal_type')}
-Indication: {signal.get('indication_type')}
-Correction Zone: {signal.get('correction_zone_type')}
-Continuation Trigger: {signal.get('continuation_trigger_type')}
-Retracement: {signal.get('retracement_pct', 0)*100:.1f}%
+TIMEFRAMES: 4H={signal.get('htf_bias')} 1H={signal.get('htf_bias_1h')} | RSI 4H={signal.get('rsi_4h')} 1H={signal.get('rsi_1h')} 5M={signal.get('rsi')}
+EMAs 5M: 8={signal.get('ema8')} 21={signal.get('ema21')} 50={signal.get('ema50')} 200={signal.get('ema200')}
+EMAs 1H: 21={signal.get('ema21_1h')} 50={signal.get('ema50_1h')} | EMAs 4H: 21={signal.get('ema21_4h')} 50={signal.get('ema50_4h')}
 
-PROPOSED LEVELS:
-Entry: {signal.get('entry_price')} | Stop: {signal.get('stop_price')} | Target: {signal.get('target_price')}
+SMC: BOS={signal.get('bos',False)} CHoCH={signal.get('choch',False)} LiqSweep={signal.get('liq_sweep',False)} FVG={signal.get('in_fvg',False)} OB={signal.get('in_ob',False)}
+MOMENTUM: BullDiv={signal.get('bull_div',False)} HiddenDiv={signal.get('hidden_div',False)} VolSpike={signal.get('vol_spike',False)} PosDelta={signal.get('pos_delta',False)}
+MACD={signal.get('macd')} | VWAP={signal.get('vwap')} DevPct={signal.get('vwap_dev_pct')}% AboveVWAP={signal.get('above_vwap',False)}
+ATR={signal.get('atr')} Ratio={signal.get('atr_ratio')} | PDH={signal.get('pdh')} PDL={signal.get('pdl')} AbovePDH={signal.get('above_pdh',False)}
 
-Evaluate this setup against the ICC framework and respond with this exact JSON:
+INDICATION: {signal.get('indication_type')} | CORRECTION: {signal.get('correction_zone_type')} | CONTINUATION: {signal.get('continuation_trigger_type')}
+LEVELS: Entry={signal.get('entry_price')} Stop={signal.get('stop_price')} T1={signal.get('target_price')} T2={signal.get('target2_price')} T3={signal.get('target3_price')}
 
+Return this JSON:
 {{
-  "verdict": "valid_trade" | "watch_only" | "invalid_setup",
+  "verdict": "valid_trade|watch_only|invalid_setup",
   "confidence": 0.0-1.0,
-  "plain_english_summary": "One clear sentence: what is happening and what to do",
-  "execution_instruction": "Exact step-by-step: what to click, what price, what size",
+  "tier": "S|A|B|X",
+  "plain_english_summary": "One sentence: what is happening and what to do",
+  "execution_instruction": "Exact step: price, size, platform",
   "entry_price": number,
   "stop_price": number,
   "target_price": number,
   "risk_reward": number,
   "htf_alignment": true/false,
   "is_countertrend": true/false,
-  "phase_analysis": {{
-    "environment": {{"passed": bool, "score": 0-100, "note": "brief reason"}},
-    "indication": {{"passed": bool, "score": 0-100, "note": "brief reason"}},
-    "correction": {{"passed": bool, "score": 0-100, "note": "brief reason"}},
-    "continuation": {{"passed": bool, "score": 0-100, "note": "brief reason"}},
-    "risk": {{"passed": bool, "score": 0-100, "note": "brief reason"}}
+  "smc_quality": "high|medium|low",
+  "strongest_factor": "single best reason to take this",
+  "biggest_risk": "single biggest reason it could fail",
+  "phase_scores": {{
+    "environment":  {{"score": 0-100, "note": "brief"}},
+    "indication":   {{"score": 0-100, "note": "brief"}},
+    "correction":   {{"score": 0-100, "note": "brief"}},
+    "continuation": {{"score": 0-100, "note": "brief"}},
+    "risk":         {{"score": 0-100, "note": "brief"}}
   }},
-  "key_reasons_to_take": ["reason1", "reason2", "reason3"],
-  "key_risks": ["risk1", "risk2"],
+  "key_confirmations": ["c1", "c2", "c3"],
+  "key_risks": ["r1", "r2"],
   "invalidation_level": number,
-  "suggested_contracts": 1,
+  "position_size_recommendation": "full|half|quarter|skip",
+  "dollar_risk_1_mnq": number,
   "dollar_risk_1_mes": number
 }}"""
 
 
 async def analyze_with_claude(signal: Dict[str, Any], api_key: str) -> Optional[Dict[str, Any]]:
-    """
-    Send market data to Claude for ICC analysis.
-    Returns structured trade decision or None if API call fails.
-    """
     if not api_key:
         return None
 
-    prompt = build_analysis_prompt(signal)
-
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=45.0) as client:
             response = await client.post(
                 CLAUDE_API_URL,
                 headers={
@@ -107,28 +96,25 @@ async def analyze_with_claude(signal: Dict[str, Any], api_key: str) -> Optional[
                 },
                 json={
                     "model": CLAUDE_MODEL,
-                    "max_tokens": 1000,
+                    "max_tokens": 1500,
                     "system": SYSTEM_PROMPT,
-                    "messages": [{"role": "user", "content": prompt}],
+                    "messages": [{"role": "user", "content": build_prompt(signal)}],
                 },
             )
 
             if response.status_code != 200:
-                print(f"Claude API error: {response.status_code} {response.text}")
+                print(f"Claude API error: {response.status_code}")
                 return None
 
-            data = response.json()
-            text = data["content"][0]["text"].strip()
+            text = data["content"][0]["text"].strip() if (data := response.json()) else ""
+            if "```" in text:
+                for part in text.split("```"):
+                    part = part.strip().lstrip("json").strip()
+                    if part.startswith("{"):
+                        text = part
+                        break
 
-            # Strip markdown fences if present
-            if text.startswith("```"):
-                text = text.split("```")[1]
-                if text.startswith("json"):
-                    text = text[4:]
-            text = text.strip()
-
-            result = json.loads(text)
-            return result
+            return json.loads(text)
 
     except Exception as e:
         print(f"Claude analysis failed: {e}")
