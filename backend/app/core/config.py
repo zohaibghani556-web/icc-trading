@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     JWT_EXPIRE_MINUTES: int = 60 * 24 * 7
     ENVIRONMENT: str = "development"
     ANTHROPIC_API_KEY: str = ""
+    POLYGON_API_KEY: str = ""
 
     ALLOWED_ORIGINS: List[str] = ["*"]
 
