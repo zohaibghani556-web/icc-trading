@@ -30,169 +30,42 @@ class BacktestTrade:
     htf_bias_1h: str = ""
 
 
-class PolygonFetcher:
-    def __init__(self, api_key: str):
-        self.api_key = api_key
+class YahooFetcher:
+    def __init__(self, api_key: str = ""):
+        pass
 
-    async def fetch_bars(self, symbol: str, days: int) -> List[Dict]:
-        end_date = datetime.now().strftime("%Y-%m-%d")
-        start_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
-        poly_symbol = symbol.replace("1!", "").replace("!", "")
-        url = f"https://api.polygon.io/v2/aggs/ticker/{poly_symbol}/range/5/minute/{start_date}/{end_date}"
-        params = {"adjusted": "true", "sort": "asc", "limit": 50000, "apiKey": self.api_key}
-        all_bars = []
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            while url:
-                resp = await client.get(url, params=params)
-                if resp.status_code != 200:
-                    raise Exception(f"Polygon error: {resp.status_code} {resp.text[:200]}")
-                data = resp.json()
-                results = data.get("results", [])
-                all_bars.extend(results)
-                next_url = data.get("next_url")
-                if next_url:
-                    url = next_url
-                    params = {"apiKey": self.api_key}
-                else:
-                    break
+    async def fetch_bars(self, symbol: str, days: int):
+        import yfinance as yf
+        yf_symbol = "NQ=F" if "NQ" in symbol else ("ES=F" if "ES" in symbol else symbol)
+        from datetime import datetime, timedelta
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=days)
+        ticker = yf.Ticker(yf_symbol)
+        df = ticker.history(
+            start=start_date.strftime("%Y-%m-%d"),
+            end=end_date.strftime("%Y-%m-%d"),
+            interval="5m"
+        )
+        if df.empty:
+            raise Exception(f"No data from Yahoo Finance for {yf_symbol}")
         bars = []
-        for b in all_bars:
+        for ts, row in df.iterrows():
+            t = ts.to_pydatetime()
+            if hasattr(t, "tzinfo") and t.tzinfo is not None:
+                t = t.replace(tzinfo=None)
             bars.append({
-                "time": datetime.fromtimestamp(b["t"] / 1000),
-                "open": float(b["o"]), "high": float(b["h"]),
-                "low": float(b["l"]), "close": float(b["c"]),
-                "volume": float(b["v"])
+                "time": t,
+                "open": float(row["Open"]),
+                "high": float(row["High"]),
+                "low": float(row["Low"]),
+                "close": float(row["Close"]),
+                "volume": float(row["Volume"])
             })
         return bars
 
-
-def calc_ema(values: List[float], period: int) -> List[Optional[float]]:
-    result = [None] * len(values)
-    k = 2.0 / (period + 1)
-    seed_start = period - 1
-    if seed_start >= len(values):
-        return result
-    result[seed_start] = sum(values[:period]) / period
-    for i in range(seed_start + 1, len(values)):
-        result[i] = values[i] * k + result[i-1] * (1 - k)
-    return result
-
-
-def calc_rsi(closes: List[float], period: int = 14) -> List[Optional[float]]:
-    result = [None] * len(closes)
-    for i in range(period, len(closes)):
-        gains, losses = 0.0, 0.0
-        for j in range(i - period + 1, i + 1):
-            d = closes[j] - closes[j-1]
-            if d > 0:
-                gains += d
-            else:
-                losses += abs(d)
-        ag = gains / period
-        al = losses / period
-        result[i] = 100 - (100 / (1 + ag / al)) if al > 0 else 100.0
-    return result
-
-
-def calc_atr(bars: List[Dict], period: int = 14) -> List[Optional[float]]:
-    result = [None] * len(bars)
-    for i in range(1, len(bars)):
-        tr = max(
-            bars[i]["high"] - bars[i]["low"],
-            abs(bars[i]["high"] - bars[i-1]["close"]),
-            abs(bars[i]["low"] - bars[i-1]["close"])
-        )
-        if i >= period:
-            window = []
-            for k in range(i - period + 1, i + 1):
-                window.append(max(
-                    bars[k]["high"] - bars[k]["low"],
-                    abs(bars[k]["high"] - bars[k-1]["close"]),
-                    abs(bars[k]["low"] - bars[k-1]["close"])
-                ))
-            result[i] = sum(window) / period
-    return result
-
-
-def calc_vwap(bars: List[Dict]) -> List[float]:
-    result = []
-    cum_pv = cum_vol = 0.0
-    current_date = None
-    for b in bars:
-        d = b["time"].date()
-        if d != current_date:
-            cum_pv = cum_vol = 0.0
-            current_date = d
-        hlc3 = (b["high"] + b["low"] + b["close"]) / 3.0
-        cum_pv += hlc3 * b["volume"]
-        cum_vol += b["volume"]
-        result.append(cum_pv / cum_vol if cum_vol > 0 else b["close"])
-    return result
-
-
-def get_session(hour: int) -> str:
-    if 4 <= hour < 9: return "us_premarket"
-    if 9 <= hour < 16: return "us_regular"
-    if 16 <= hour < 20: return "us_afterhours"
-    return "globex"
-
-
-def calc_htf_bias(bars: List[Dict], closes: List[float]):
-    hourly_close = {}
-    four_h_close = {}
-    for i, b in enumerate(bars):
-        hk = b["time"].replace(minute=0, second=0, microsecond=0)
-        fhk = b["time"].replace(hour=(b["time"].hour // 4) * 4, minute=0, second=0, microsecond=0)
-        hourly_close[hk] = closes[i]
-        four_h_close[fhk] = closes[i]
-
-    h_times = sorted(hourly_close.keys())
-    h_closes = [hourly_close[t] for t in h_times]
-    fh_times = sorted(four_h_close.keys())
-    fh_closes = [four_h_close[t] for t in fh_times]
-
-    h_e21 = calc_ema(h_closes, 21)
-    h_e50 = calc_ema(h_closes, 50)
-    fh_e21 = calc_ema(fh_closes, 21)
-    fh_e50 = calc_ema(fh_closes, 50)
-
-    h_bias = {}
-    for i, t in enumerate(h_times):
-        if h_e21[i] and h_e50[i]:
-            if h_closes[i] > h_e21[i] and h_closes[i] > h_e50[i]:
-                h_bias[t] = "bullish"
-            elif h_closes[i] < h_e21[i] and h_closes[i] < h_e50[i]:
-                h_bias[t] = "bearish"
-            else:
-                h_bias[t] = "neutral"
-
-    fh_bias = {}
-    for i, t in enumerate(fh_times):
-        if fh_e21[i] and fh_e50[i]:
-            if fh_closes[i] > fh_e21[i] and fh_e21[i] > fh_e50[i]:
-                fh_bias[t] = "bullish"
-            elif fh_closes[i] < fh_e21[i] and fh_e21[i] < fh_e50[i]:
-                fh_bias[t] = "bearish"
-            else:
-                fh_bias[t] = "neutral"
-
-    bar_1h = []
-    bar_4h = []
-    last_1h = "neutral"
-    last_4h = "neutral"
-    for b in bars:
-        hk = b["time"].replace(minute=0, second=0, microsecond=0)
-        fhk = b["time"].replace(hour=(b["time"].hour // 4) * 4, minute=0, second=0, microsecond=0)
-        if hk in h_bias: last_1h = h_bias[hk]
-        if fhk in fh_bias: last_4h = fh_bias[fhk]
-        bar_1h.append(last_1h)
-        bar_4h.append(last_4h)
-    return bar_1h, bar_4h
-
-
 class ICCBacktester:
-    def __init__(self, polygon_api_key: str, anthropic_api_key: str = ""):
-        self.fetcher = PolygonFetcher(polygon_api_key)
+    def __init__(self, polygon_api_key: str = "", anthropic_api_key: str = ""):
+        self.fetcher = YahooFetcher()
         self.anthropic_key = anthropic_api_key
 
     async def run(self, symbol: str = "NQ", days: int = 365, config: Optional[Dict] = None) -> Dict:
