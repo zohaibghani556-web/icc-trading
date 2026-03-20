@@ -1,12 +1,12 @@
 [phases.setup]
-nixPkgs = ["python311", "gcc", "stdenv.cc.cc.lib"]
+nixPkgs = ["python311", "gcc", "stdenv.cc.cc.lib", "zlib"]
 
 [phases.install]
 cmds = [
   "python3.11 -m venv /opt/venv",
   "/opt/venv/bin/pip install --upgrade pip",
-  "/opt/venv/bin/pip install -r backend/requirements.txt"
+  "LD_LIBRARY_PATH=/root/.nix-profile/lib:/nix/store/$(ls /nix/store | grep gcc | head -1)/lib /opt/venv/bin/pip install -r backend/requirements.txt"
 ]
 
 [start]
-cmd = "cd backend && /opt/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+cmd = "cd backend && LD_LIBRARY_PATH=/root/.nix-profile/lib /opt/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port $PORT"
