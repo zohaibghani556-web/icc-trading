@@ -1,12 +1,15 @@
 [phases.setup]
-nixPkgs = ["python311", "gcc", "stdenv.cc.cc.lib", "zlib"]
+nixPkgs = ["python311", "stdenv.cc.cc.lib"]
 
 [phases.install]
 cmds = [
   "python3.11 -m venv /opt/venv",
   "/opt/venv/bin/pip install --upgrade pip",
-  "LD_LIBRARY_PATH=/root/.nix-profile/lib:/nix/store/$(ls /nix/store | grep gcc | head -1)/lib /opt/venv/bin/pip install -r backend/requirements.txt"
+  "/opt/venv/bin/pip install -r backend/requirements.txt --extra-index-url https://pypi.org/simple"
 ]
 
+[phases.build]
+cmds = ["find /nix/store -name 'libstdc++.so.6' 2>/dev/null | head -5"]
+
 [start]
-cmd = "cd backend && LD_LIBRARY_PATH=/root/.nix-profile/lib /opt/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+cmd = "cd backend && export LD_LIBRARY_PATH=$(find /nix/store -name 'libstdc++.so.6' 2>/dev/null | head -1 | xargs dirname):$LD_LIBRARY_PATH && /opt/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port $PORT"
