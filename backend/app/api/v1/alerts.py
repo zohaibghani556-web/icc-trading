@@ -208,12 +208,7 @@ async def receive_webhook(
     ai_analysis = None
     if settings.ANTHROPIC_API_KEY:
         try:
-            import asyncio
-        try:
-            ai_analysis = await asyncio.wait_for(analyze_with_claude(signal_dict, settings.ANTHROPIC_API_KEY), timeout=4.0)
-        except asyncio.TimeoutError:
-            print("Claude timeout - using rule-based result")
-            ai_analysis = None
+            ai_analysis = await analyze_with_claude(signal_dict, settings.ANTHROPIC_API_KEY)
         except Exception as e:
             print(f"AI analysis skipped: {e}")
 
