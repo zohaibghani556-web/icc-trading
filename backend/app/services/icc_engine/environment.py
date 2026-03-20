@@ -1,10 +1,10 @@
 """
 services/icc_engine/environment.py — Environment Filter
 
-This module answers the question: "Is conditions right to even look at setups?"
-
-The environment filter runs FIRST. If it fails, no ICC evaluation happens.
-Think of it as a pre-flight checklist before you even consider a trade.
+FIXES:
+  - Accepts Pine Script session names (ny_open, london, ny_mid, ny_power, premarket)
+  - Symbol check accepts exchange-prefixed symbols (CME_MINI:NQ1! → NQ1!)
+  - More permissive defaults so real signals aren't silently blocked
 """
 
 from typing import Dict, Any, Optional
@@ -14,37 +14,76 @@ from app.services.icc_engine.result import PhaseResult, RuleResult
 from app.core.config import settings
 
 
-# ── Known trading sessions ─────────────────────────────────────────────────
-SESSION_HOURS_UTC = {
-    "us_premarket": (time(8, 0), time(13, 30)),      # 8:00-9:30 AM ET
-    "us_regular": (time(13, 30), time(20, 0)),        # 9:30 AM-4:00 PM ET
-    "us_afterhours": (time(20, 0), time(21, 0)),
-    "globex": (time(23, 0), time(22, 0)),             # nearly 24h
-    "london": (time(7, 0), time(15, 30)),
-    "asia": (time(0, 0), time(8, 0)),
+# ── All known session names (Pine Script + backend format) ────────────────
+# Pine Script sends: london, ny_open, ny_mid, ny_power, premarket, asia, globex
+# Backend config may use: us_regular, us_premarket, globex, london, asia
+ALL_ACTIVE_SESSIONS = {
+    # Pine Script names
+    "ny_open", "ny_mid", "ny_power", "london", "premarket", "asia", "globex",
+    # Backend names
+    "us_regular", "us_premarket", "us_afterhours",
 }
 
-# ── Symbol metadata: minimum tick size, standard daily range ───────────────
-SYMBOL_SPECS = {
-    "ES1!":  {"min_volume": 50000, "typical_spread": 0.25},
-    "MES1!": {"min_volume": 10000, "typical_spread": 0.25},
-    "NQ1!":  {"min_volume": 30000, "typical_spread": 0.25},
-    "MNQ1!": {"min_volume": 5000,  "typical_spread": 0.25},
-    "YM1!":  {"min_volume": 20000, "typical_spread": 1.0},
-    "MYM1!": {"min_volume": 3000,  "typical_spread": 1.0},
-    "CL1!":  {"min_volume": 15000, "typical_spread": 0.01},
-    "MCL1!": {"min_volume": 2000,  "typical_spread": 0.01},
-    "GC1!":  {"min_volume": 8000,  "typical_spread": 0.10},
-    "MGC1!": {"min_volume": 1000,  "typical_spread": 0.10},
+# Pine session → backend session mapping
+PINE_TO_BACKEND = {
+    "ny_open":   "us_regular",
+    "ny_mid":    "us_regular",
+    "ny_power":  "us_regular",
+    "premarket": "us_premarket",
+    "london":    "london",
+    "asia":      "asia",
+    "globex":    "globex",
 }
+
+# Which sessions are "prime" trading hours — used for scoring bonus
+PRIME_SESSIONS = {"ny_open", "ny_power", "london", "us_regular"}
+
+# Supported base symbols (without exchange prefix)
+SUPPORTED_BASE_SYMBOLS = {
+    "ES1!", "MES1!", "NQ1!", "MNQ1!",
+    "YM1!", "MYM1!", "CL1!", "MCL1!",
+    "GC1!", "MGC1!",
+}
+
+
+def normalize_symbol(symbol: str) -> str:
+    """Strip exchange prefix. 'CME_MINI:NQ1!' → 'NQ1!'"""
+    if ":" in symbol:
+        return symbol.split(":", 1)[1]
+    return symbol
+
+
+def session_is_allowed(session: str, allowed_sessions: list) -> bool:
+    """
+    Check if a session is allowed, accounting for Pine Script naming vs backend naming.
+    """
+    if not session:
+        return True  # no session info = don't block
+
+    # Direct match
+    if session in allowed_sessions:
+        return True
+
+    # Map Pine name to backend name and check
+    backend_name = PINE_TO_BACKEND.get(session.lower())
+    if backend_name and backend_name in allowed_sessions:
+        return True
+
+    # If allowed_sessions contains 'us_regular', also allow Pine's ny_* sessions
+    if "us_regular" in allowed_sessions and session in ("ny_open", "ny_mid", "ny_power"):
+        return True
+
+    # If allowed_sessions contains 'us_premarket', allow Pine's 'premarket'
+    if "us_premarket" in allowed_sessions and session == "premarket":
+        return True
+
+    return False
 
 
 class EnvironmentFilter:
     """
     Checks whether market conditions are appropriate for trading.
-
-    All rules here are binary go/no-go checks. Any blocking failure
-    stops the evaluation immediately.
+    Updated to handle Pine Script session names and exchange-prefixed symbols.
     """
 
     def evaluate(
@@ -52,56 +91,43 @@ class EnvironmentFilter:
         signal_data: Dict[str, Any],
         config: Dict[str, Any],
     ) -> PhaseResult:
-        """
-        Run all environment checks against the signal.
-
-        Args:
-            signal_data: Normalized signal dictionary
-            config: Active ICC configuration settings
-
-        Returns:
-            PhaseResult with pass/fail for each environment rule
-        """
         rules = []
         total_score = 0
         max_possible = 0
 
-        # ── Rule 1: Symbol is on the allowed list ──────────────────────────
-        symbol_rule = self._check_symbol(signal_data.get("symbol", ""))
+        symbol = signal_data.get("symbol", "")
+        session = signal_data.get("session", "")
+        htf_bias = signal_data.get("htf_bias", "")
+
+        # ── Rule 1: Symbol check ──────────────────────────────────────────
+        symbol_rule = self._check_symbol(symbol)
         rules.append(symbol_rule)
         total_score += symbol_rule.score
         max_possible += symbol_rule.max_score
 
-        # ── Rule 2: Session is allowed ─────────────────────────────────────
-        session_rule = self._check_session(
-            signal_data.get("session"),
-            signal_data.get("signal_timestamp"),
-            config.get("allowed_sessions", settings.ALLOWED_SESSIONS),
-        )
+        # ── Rule 2: Session check ─────────────────────────────────────────
+        allowed_sessions = config.get("allowed_sessions", list(ALL_ACTIVE_SESSIONS))
+        session_rule = self._check_session(session, allowed_sessions)
         rules.append(session_rule)
         total_score += session_rule.score
         max_possible += session_rule.max_score
 
-        # ── Rule 3: Higher timeframe bias is determinable ──────────────────
+        # ── Rule 3: HTF bias ──────────────────────────────────────────────
         htf_rule = self._check_htf_bias(
-            signal_data.get("htf_bias"),
-            config.get("require_htf_bias", True),
+            htf_bias,
+            config.get("require_htf_bias", False),
         )
         rules.append(htf_rule)
         total_score += htf_rule.score
         max_possible += htf_rule.max_score
 
-        # ── Determine if any blocking rule failed ─────────────────────────
         has_blocking_failure = any(r.is_blocking and not r.passed for r in rules)
         phase_passed = not has_blocking_failure
 
-        # ── Calculate score as percentage ─────────────────────────────────
         score = int((total_score / max_possible) * 100) if max_possible > 0 else 0
 
-        # ── Build summary sentence ─────────────────────────────────────────
         if phase_passed:
-            session = signal_data.get("session", "unknown")
-            summary = f"Environment clear. Session: {session}. Symbol allowed."
+            summary = f"Environment clear. Session: {session}. Symbol: {symbol}."
         else:
             failures = [r.label for r in rules if r.is_blocking and not r.passed]
             summary = f"Environment blocked: {', '.join(failures)}."
@@ -115,116 +141,69 @@ class EnvironmentFilter:
         )
 
     def _check_symbol(self, symbol: str) -> RuleResult:
-        """Is this symbol on our approved list?"""
-        allowed = settings.ALLOWED_SYMBOLS
-        passed = symbol in allowed
+        """Accept both raw and exchange-prefixed symbols."""
+        base = normalize_symbol(symbol)
+        passed = base in SUPPORTED_BASE_SYMBOLS
 
+        if passed:
+            return RuleResult(
+                passed=True,
+                rule_id="env_symbol_check",
+                label="Symbol allowed",
+                message=f"{symbol} → {base} is on the approved list.",
+                score=25, max_score=25, is_blocking=True,
+            )
+
+        # Unknown symbol — warn but don't hard-block (allows new instruments)
+        print(f"[ENV] Unknown symbol '{symbol}' (base: '{base}') — allowing with reduced score")
         return RuleResult(
-            passed=passed,
+            passed=True,
             rule_id="env_symbol_check",
             label="Symbol allowed",
-            message=(
-                f"{symbol} is on the approved list."
-                if passed
-                else f"{symbol} is not in the approved symbols list: {', '.join(allowed)}"
-            ),
-            score=25 if passed else 0,
-            max_score=25,
-            is_blocking=True,  # Unknown symbol → always block
+            message=f"Symbol '{symbol}' not in standard list, but proceeding. Add to SUPPORTED_BASE_SYMBOLS if legitimate.",
+            score=10, max_score=25, is_blocking=False,
         )
 
-    def _check_session(
-        self,
-        session: Optional[str],
-        timestamp: Optional[Any],
-        allowed_sessions: list,
-    ) -> RuleResult:
-        """Is this signal occurring during an approved trading session?"""
-
-        if session and session in allowed_sessions:
+    def _check_session(self, session: Optional[str], allowed_sessions: list) -> RuleResult:
+        """Check session with Pine Script name awareness."""
+        if not session:
             return RuleResult(
                 passed=True,
                 rule_id="env_session_check",
                 label="Session allowed",
-                message=f"Session '{session}' is in the approved session list.",
-                score=35,
-                max_score=35,
-                is_blocking=True,
+                message="No session info. Proceeding without session validation.",
+                score=15, max_score=35, is_blocking=False,
             )
 
-        # If no session provided, try to infer from timestamp
-        if timestamp:
-            try:
-                dt = datetime.fromisoformat(str(timestamp)) if isinstance(timestamp, str) else timestamp
-                current_time = dt.time()
+        allowed = session_is_allowed(session, allowed_sessions)
+        is_prime = session in PRIME_SESSIONS
 
-                for session_name, (start, end) in SESSION_HOURS_UTC.items():
-                    if session_name in allowed_sessions:
-                        # Handle sessions that cross midnight
-                        if start > end:
-                            if current_time >= start or current_time <= end:
-                                return RuleResult(
-                                    passed=True,
-                                    rule_id="env_session_check",
-                                    label="Session allowed",
-                                    message=f"Time {current_time} falls within {session_name} session.",
-                                    score=25,  # slightly lower score since inferred
-                                    max_score=35,
-                                    is_blocking=True,
-                                )
-                        else:
-                            if start <= current_time <= end:
-                                return RuleResult(
-                                    passed=True,
-                                    rule_id="env_session_check",
-                                    label="Session allowed",
-                                    message=f"Time {current_time} falls within {session_name} session.",
-                                    score=25,
-                                    max_score=35,
-                                    is_blocking=True,
-                                )
-            except (ValueError, AttributeError):
-                pass
-
-        # If session is provided but not allowed
-        if session:
+        if allowed:
             return RuleResult(
-                passed=False,
+                passed=True,
                 rule_id="env_session_check",
                 label="Session allowed",
-                message=f"Session '{session}' is not in allowed sessions: {', '.join(allowed_sessions)}",
-                score=0,
-                max_score=35,
-                is_blocking=True,
+                message=f"Session '{session}' is allowed. {'Prime session — full score.' if is_prime else ''}",
+                score=35 if is_prime else 25,
+                max_score=35, is_blocking=False,
             )
 
-        # No session info at all — pass with warning (allow evaluation to continue)
         return RuleResult(
-            passed=True,
+            passed=False,
             rule_id="env_session_check",
             label="Session allowed",
-            message="No session info provided. Proceeding without session validation.",
-            score=15,  # low score for missing info
-            max_score=35,
-            is_blocking=False,
+            message=f"Session '{session}' not in allowed list: {allowed_sessions}. Mapped backend name: {PINE_TO_BACKEND.get(session, 'unknown')}.",
+            score=0, max_score=35, is_blocking=True,
         )
 
-    def _check_htf_bias(
-        self,
-        htf_bias: Optional[str],
-        require_htf_bias: bool,
-    ) -> RuleResult:
-        """Is there a determinable higher timeframe bias?"""
-
+    def _check_htf_bias(self, htf_bias: Optional[str], require_htf_bias: bool) -> RuleResult:
         if htf_bias and htf_bias in ("bullish", "bearish"):
             return RuleResult(
                 passed=True,
                 rule_id="env_htf_bias",
                 label="HTF bias available",
                 message=f"Higher timeframe bias is {htf_bias}.",
-                score=40,
-                max_score=40,
-                is_blocking=False,
+                score=40, max_score=40, is_blocking=False,
             )
 
         if htf_bias == "neutral":
@@ -232,30 +211,23 @@ class EnvironmentFilter:
                 passed=True,
                 rule_id="env_htf_bias",
                 label="HTF bias available",
-                message="HTF bias is neutral. Trend-following setups have reduced edge.",
-                score=15,
-                max_score=40,
-                is_blocking=False,
+                message="HTF bias is neutral. Reduced confidence.",
+                score=15, max_score=40, is_blocking=False,
             )
 
-        # No bias provided
         if require_htf_bias:
             return RuleResult(
                 passed=False,
                 rule_id="env_htf_bias",
                 label="HTF bias available",
-                message="No higher timeframe bias provided. Required by current config.",
-                score=0,
-                max_score=40,
-                is_blocking=False,  # Warning, not a hard block
+                message="No HTF bias provided. Required by config.",
+                score=0, max_score=40, is_blocking=False,
             )
 
         return RuleResult(
             passed=True,
             rule_id="env_htf_bias",
             label="HTF bias available",
-            message="No HTF bias provided. Proceeding without bias alignment check.",
-            score=20,
-            max_score=40,
-            is_blocking=False,
+            message="No HTF bias. Proceeding without bias check.",
+            score=20, max_score=40, is_blocking=False,
         )

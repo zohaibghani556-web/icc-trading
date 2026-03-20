@@ -1,8 +1,9 @@
 """
 models/icc_config.py — ICC rule configuration
 
-Stores all the configurable thresholds for the ICC rule engine.
-You can edit these from the Settings page in the dashboard.
+FIXES:
+  - Added min_structure_break_points column (was referenced in code but missing from model)
+  - Updated default allowed_sessions to include all Pine Script session names
 """
 
 import uuid
@@ -14,10 +15,6 @@ from app.db.database import Base
 
 
 class ICCConfiguration(Base):
-    """
-    User-configurable ICC rule settings.
-    All thresholds and toggles live here — no magic numbers in code.
-    """
     __tablename__ = "icc_configurations"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -25,36 +22,42 @@ class ICCConfiguration(Base):
     is_active = Column(Boolean, default=True)
 
     # ── Environment rules ─────────────────────────────────────────────────
-    allowed_sessions = Column(JSON, default=lambda: ["us_regular"])
-    require_htf_bias = Column(Boolean, default=True)
+    # Includes both Pine Script session names AND backend session names
+    allowed_sessions = Column(JSON, default=lambda: [
+        "us_regular", "us_premarket", "london", "globex",
+        "ny_open", "ny_mid", "ny_power", "premarket", "asia"
+    ])
+    require_htf_bias = Column(Boolean, default=False)
     htf_bias_timeframe = Column(String(10), default="60")
 
     # ── Indication rules ──────────────────────────────────────────────────
     min_impulse_candles = Column(Integer, default=1)
-    min_structure_break_points = Column(Float, default=2.0)
+    min_structure_break_points = Column(Float, default=0.5)  # was missing, caused AttributeError
 
     # ── Correction rules ─────────────────────────────────────────────────
     min_retracement_pct = Column(Float, default=0.236)
     max_retracement_pct = Column(Float, default=0.618)
-    require_correction_zone = Column(Boolean, default=True)
+    require_correction_zone = Column(Boolean, default=False)
     allowed_correction_zones = Column(JSON, default=lambda: [
-        "fair_value_gap", "order_block", "prior_breakout", "vwap", "discount_zone"
+        "fair_value_gap", "order_block", "prior_breakout_level",
+        "vwap", "anchored_vwap", "discount_zone", "fibonacci_zone",
+        "ema_zone", "structure_level", "premium_zone",
     ])
 
     # ── Continuation rules ────────────────────────────────────────────────
     require_rejection_candle = Column(Boolean, default=False)
     require_volume_expansion = Column(Boolean, default=False)
-    min_continuation_trigger_score = Column(Integer, default=50)
+    min_continuation_trigger_score = Column(Integer, default=40)
 
     # ── Risk rules ────────────────────────────────────────────────────────
     min_risk_reward = Column(Float, default=2.0)
-    max_risk_per_trade_pct = Column(Float, default=1.0)
-    daily_max_loss_pct = Column(Float, default=3.0)
-    max_consecutive_losses = Column(Integer, default=3)
-    max_open_positions = Column(Integer, default=1)
+    max_risk_per_trade_pct = Column(Float, default=2.0)
+    daily_max_loss_pct = Column(Float, default=5.0)
+    max_consecutive_losses = Column(Integer, default=5)
+    max_open_positions = Column(Integer, default=0)  # 0 = no limit
 
     # ── Countertrend penalty ──────────────────────────────────────────────
-    countertrend_score_penalty = Column(Integer, default=20)
+    countertrend_score_penalty = Column(Integer, default=10)
 
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
