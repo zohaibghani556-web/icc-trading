@@ -8,7 +8,7 @@ export default function DashboardPage() {
   const [stats, setStats] = useState<AnalyticsSummary | null>(null)
   const [selected, setSelected] = useState<SetupEvaluation | null>(null)
   const [loading, setLoading] = useState(true)
-  const [lastUpdate, setLastUpdate] = useState<Date>(new Date())
+  const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
 
   const load = useCallback(async () => {
     try {
@@ -60,7 +60,7 @@ export default function DashboardPage() {
             <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#00ff88', animation: 'pulse 2s infinite' }} />
             <span style={{ color: '#3d4459' }}>LIVE</span>
           </div>
-          <span style={{ color: '#3d4459' }}>Updated {lastUpdate.toLocaleTimeString()}</span>
+          <span style={{ color: '#3d4459' }}>Updated {lastUpdate ? lastUpdate.toLocaleTimeString() : "--:--:--"}</span>
           <button onClick={load} style={{ background: 'none', border: '1px solid #1a1f2e', color: '#3d4459', padding: '4px 10px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px' }}>
             ↻ REFRESH
           </button>
