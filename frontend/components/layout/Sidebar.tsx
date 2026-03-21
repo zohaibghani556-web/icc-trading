@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation'
 const nav = [
   { href: '/',               label: 'Dashboard',     icon: '▣' },
   { href: '/alerts',         label: 'Alerts',        icon: '◈' },
+  { href: '/backtest',       label: 'Backtest',      icon: '⚡' },
   { href: '/journal',        label: 'Journal',       icon: '≡' },
   { href: '/analytics',      label: 'Analytics',     icon: '◎' },
   { href: '/paper-trading',  label: 'Paper Trade',   icon: '◆' },
@@ -36,7 +37,7 @@ export function Sidebar() {
           ICC<span style={{ color: 'var(--blue)' }}>.</span>trade
         </div>
         <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-          Decision Support v1
+          Decision Support v2
         </div>
       </div>
 
